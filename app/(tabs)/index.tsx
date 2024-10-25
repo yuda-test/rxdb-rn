@@ -5,48 +5,55 @@ import ParallaxScrollView from '@/components/ParallaxScrollView';
 import { ThemedText } from '@/components/ThemedText';
 import { ThemedView } from '@/components/ThemedView';
 
+import { signIn, signUp } from 'aws-amplify/auth';
+import { Amplify } from 'aws-amplify';
+import amplifyConfig from '../amplifyconfiguration.json';
+import { useEffect } from 'react';
+Amplify.configure(amplifyConfig);
+
 export default function HomeScreen() {
+
+  const username = 'yuda';
+  const password = 'Yud@123456';
+
+  useEffect(() => {
+    console.log('username => ', username);
+    console.log('password => ', password);
+    // signUp({
+    //   username,
+    //   password,
+    //   options: {
+    //     userAttributes: {
+    //       name: 'yuda'
+    //     }
+    //   }
+    // })
+    //   .then(v => console.log(v))
+    //   .catch(e => console.log('error => ', e.message));
+    signIn({ username, password })
+      .then(({ isSignedIn, nextStep }) => {
+        console.log('isSigned => ', isSignedIn);
+        console.log('nextStep => ', nextStep);
+      })
+      .catch(e => console.log('error => ', e.underlyingError));
+
+  }, []);
+
   return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({ ios: 'cmd + d', android: 'cmd + m' })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-        <ThemedText>
-          Tap the Explore tab to learn more about what's included in this starter app.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          When you're ready, run{' '}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
-        </ThemedText>
-      </ThemedView>
-    </ParallaxScrollView>
+    // <ParallaxScrollView
+    //   headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
+    //   headerImage={
+    //     <Image
+    //       source={require('@/assets/images/partial-react-logo.png')}
+    //       style={styles.reactLogo}
+    //     />
+    //   }
+    // >
+    <ThemedView style={styles.titleContainer}>
+      <ThemedText type="title">Welcome!</ThemedText>
+      {/* <HelloWave /> */}
+    </ThemedView>
+    // </ParallaxScrollView>
   );
 }
 
