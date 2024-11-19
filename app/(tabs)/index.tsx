@@ -7,7 +7,7 @@ import {
   Text,
 } from "react-native";
 import { useEffect, useState } from "react";
-import EventSource from "react-native-sse";
+import EventSource, { EventSourceListener } from "react-native-sse";
 
 import { RxDatabase, addRxPlugin, createRxDatabase } from "rxdb";
 import { RxDBDevModePlugin } from "rxdb/plugins/dev-mode";
@@ -60,6 +60,7 @@ export default function HomeScreen() {
     name: "",
   });
   const [todo, setTodo] = useState<TypeTodo[]>([]);
+  const [jwt, setJwt] = useState<string>('');
 
   function changeHandler(key: string, value: string): void {
     const dataToChange = { ...data, [key]: value };
@@ -129,11 +130,20 @@ export default function HomeScreen() {
   }
 
   async function replicationHandler(): Promise<void> {
-    const eventSource = new EventSource(`${REPLICATION_URL}/stream`);
+    const eventSource = new EventSource(`${REPLICATION_URL}/pull_stream`, {
+      headers: {
+        Authorization: {
+          toString: function () {
+            return jwt;
+          }
+        }
+      }
+    });
     eventSource.addEventListener("message", (event) => {
       const eventData = JSON.parse(event.data || "{}");
+      console.log('--pull-stream', new Date().toISOString(), eventData);
       myPullStream$.next({
-        documents: eventData.documents,
+        documents: eventData.documents || [],
         checkpoint: eventData.checkpoint,
       });
     });
@@ -144,11 +154,13 @@ export default function HomeScreen() {
       replicationIdentifier: "my-http-replication",
       push: {
         async handler(changeRows) {
-          const rawResponse = await fetch(REPLICATION_URL, {
+          console.log('--push-jwt', jwt);
+          const rawResponse = await fetch(`${REPLICATION_URL}/push`, {
             method: "POST",
             headers: {
               Accept: "application/json",
               "Content-Type": "application/json",
+              Authorization: `${jwt}`,
             },
             body: JSON.stringify(changeRows),
           });
@@ -159,14 +171,19 @@ export default function HomeScreen() {
       pull: {
         stream$: myPullStream$.asObservable(),
         async handler() {
+          console.log('--pull-jwt', jwt);
           //const updatedAt = checkpointOrNull ? checkpointOrNull.updatedAt : 0;
           //const id = checkpointOrNull ? checkpointOrNull.id : "";
           const response = await fetch(
             // `${REPLICATION_URL}?updatedAt=${updatedAt}&id=${id}&limit=${batchSize}`,
-            REPLICATION_URL,
+            `${REPLICATION_URL}/pull`, {
+              headers: {
+                Authorization: `${jwt}`,
+              }
+            }
           );
           const data = await response.json();
-          // console.log("pull response: ", data);
+          console.log("--pull response: ", data);
           return {
             documents: data.documents,
             checkpoint: data.checkpoint,
@@ -178,14 +195,14 @@ export default function HomeScreen() {
 
   async function readDB(): Promise<void> {
     const todoData = await db!.todos.find({}).exec();
-    // console.log("initiate read => ", todoData);
+    console.log("initiate read => ", todoData.length, todoData);
     setTodo(todoData);
   }
 
   async function subscribeTodo(): Promise<void> {
     const todoData = db!.todos.find({}).$;
     todoData.subscribe((todoData: TypeTodo[]) => {
-      // console.log("todoData", todoData);
+      console.log("subscribe todoData", todoData.length, todoData);
       setTodo(todoData);
     });
   }
@@ -195,14 +212,58 @@ export default function HomeScreen() {
   }, []);
 
   useEffect(() => {
-    if (db) {
-      // console.log("onDBchanges =============");
-      subscribeTodo()
-        .then(() => readDB())
-        .then(() => replicationHandler())
-        .catch((err) => console.log("subscribe issue ", err));
-    }
-  }, [db]);
+    const handleSubscribeAndRead = async () => {
+      try {
+        if (db && jwt) {
+          await subscribeTodo();
+          await readDB();
+          await replicationHandler();
+        }
+      } catch (err) {
+        console.error("Subscription or read error:", err);
+      }
+    };
+  
+    handleSubscribeAndRead();
+  }, [db, jwt]);
+
+  useEffect(() => {
+    const es = new EventSource(`${REPLICATION_URL}/pull_stream`, {
+      headers: {
+        Authorization: {
+          toString: function () {
+            return jwt;
+          },
+        },
+      },
+    });
+
+    const listener: EventSourceListener = (event) => {
+      if (event.type === "open") {
+        console.log("Open SSE connection.");
+      } else if (event.type === "message") {
+        const eventData = JSON.parse(event.data || "{}");
+        console.log('--pull-stream', new Date().toISOString(), eventData);
+        myPullStream$.next({
+          documents: eventData.documents || [],
+          checkpoint: eventData.checkpoint,
+        });
+      } else if (event.type === "error") {
+        console.error("Connection error:", event.message);
+      } else if (event.type === "exception") {
+        console.error("Error:", event.message, event.error);
+      }
+    };
+
+    es.addEventListener("open", listener);
+    es.addEventListener("message", listener);
+    es.addEventListener("error", listener);
+
+    return () => {
+      es.removeAllEventListeners();
+      es.close();
+    };
+  }, [jwt]);
 
   const ItemsComponent = ({ item }: { item: TypeTodo }) => {
     return (
@@ -227,8 +288,56 @@ export default function HomeScreen() {
     );
   };
 
+  async function login(data: any) {
+    try {
+      const response: Response = await fetch('https://sort.my.id/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'jwt',
+        },
+        body: JSON.stringify(data),
+      });
+
+      if (!response.ok) {
+        throw new Error('Network response was not ok');
+      }
+
+      const res = await response.json();
+      console.log('--result', res.data);
+      setJwt(res.data.jwt);
+
+    } catch (error) {
+      console.error('--error-login', error);
+    }
+  }
+
   return (
     <SafeAreaView style={styles.titleContainer}>
+      <View
+          style={{
+            marginTop: 20,
+          }}
+        >
+        <Button
+          title="Login sharkpos"
+          onPress={() => {
+            login({ username: 'sharkpos.course@gmail.com' });
+          }}
+        />
+        <Button
+          title="Login dea"
+          onPress={() => {
+            login({ username: 'dea.edria@gmail.com' });
+          }}
+        />
+        <Button
+          title="Login fandi"
+          onPress={() => {
+            login({ username: 'irfanfandi38@gmail.com' });
+          }}
+        />
+      </View>
       <TextInput
         placeholder="id"
         value={data.id}
