@@ -42,7 +42,8 @@
     "react-native-sse": "^1.2.1",
     "react-native-web": "~0.19.10",
     "rxdb": "^15.37.0",
-    "rxjs": "^7.8.1"
+    "rxjs": "^7.8.1",
+    "ws": "^8.18.0"
   },
   "devDependencies": {
     "@babel/core": "^7.20.0",
