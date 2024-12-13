@@ -7,7 +7,7 @@ import {
   Text,
 } from "react-native";
 import React, { useEffect, useState } from "react";
-import EventSource, { EventSourceListener } from "react-native-sse";
+import EventSource from "react-native-sse";
 
 import {
   MaybePromise,
@@ -27,15 +27,40 @@ import {
   RxGraphQLReplicationState,
 } from "rxdb/plugins/replication-graphql";
 
+import { Amplify } from "aws-amplify";
+import { generateClient } from "aws-amplify/data";
+
+const authToken =
+  "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJkYXRhIjp7Il9pZCI6IjY1ZDZiYTg4ZGMzM2MyOTFmNWY5YzU3YiIsImxpY2Vuc2UiOiI2NWQ2YmE4YWRjMzNjMjkxZjVmOWM3MGUiLCJuYW1lIjoiZmFuZGkifSwiaWF0IjoxNzMzNzU3NjA3LCJleHAiOjE3NjQ4NjE2MDd9.RQ0DjwNsgtpIRBQCav9LxFe7UPNJNAltL4J_CFBJ7fQ";
+
+Amplify.configure({
+  API: {
+    GraphQL: {
+      region: "eu-central-1",
+      endpoint:
+        "https://dyewzulquzabraucc4urj7yv24.appsync-api.eu-central-1.amazonaws.com/graphql",
+      defaultAuthMode: "lambda",
+
+      // endpoint: "https://uwxwtxbufrg5xdhlccqvdl7fze.appsync-api.eu-central-1.amazonaws.com/graphql",
+      // defaultAuthMode: 'apiKey',
+      // apiKey: "da2-tq2f72s5bvc4bf4u3teusys6aa"
+    },
+  },
+});
+
+const client = generateClient({
+  authMode: "lambda",
+  authToken,
+});
+
 addRxPlugin(RxDBDevModePlugin);
 
 import { Subject } from "rxjs";
+import { replicateRxCollection } from "rxdb/plugins/replication";
 
 const myPullStream$ = new Subject<
   RxReplicationPullStreamItem<unknown, unknown>
 >();
-
-import { replicateRxCollection } from "rxdb/plugins/replication";
 
 const todoSchema = {
   version: 0,
@@ -155,207 +180,164 @@ export default function HomeScreen() {
     }
   }
 
-  async function replicationHandler(): Promise<void> {
-    // const eventSource = new EventSource(`${REPLICATION_URL}/pull_stream`, {
-    //   headers: {
-    //     Authorization: {
-    //       toString: function () {
-    //         return jwt;
-    //       },
-    //     },
-    //   },
-    // });
-    // eventSource.addEventListener("message", (event) => {
-    //   const eventData = JSON.parse(event.data || "{}");
-    //   console.log("--pull-stream", new Date().toISOString(), eventData);
-    //   myPullStream$.next({
-    //     documents: eventData.documents || [],
-    //     checkpoint: eventData.checkpoint,
-    //   });
-    // });
-    // eventSource.addEventListener("error", () => myPullStream$.next("RESYNC"));
-
-    // replicateRxCollection({
-    //   collection: db!.todos,
-    //   replicationIdentifier: "my-http-replication",
-    //   push: {
-    //     async handler(changeRows) {
-    //       console.log("--push-jwt", jwt);
-    //       const rawResponse = await fetch(`${REPLICATION_URL}/push`, {
-    //         method: "POST",
-    //         headers: {
-    //           Accept: "application/json",
-    //           "Content-Type": "application/json",
-    //           Authorization: `${jwt}`,
-    //         },
-    //         body: JSON.stringify(changeRows),
-    //       });
-    //       const conflictsArray = await rawResponse.json();
-    //       return conflictsArray;
-    //     },
-    //   },
-    //   pull: {
-    //     stream$: myPullStream$.asObservable(),
-    //     async handler() {
-    //       console.log("--pull-jwt", jwt);
-    //       //const updatedAt = checkpointOrNull ? checkpointOrNull.updatedAt : 0;
-    //       //const id = checkpointOrNull ? checkpointOrNull.id : "";
-    //       const response = await fetch(
-    //         // `${REPLICATION_URL}?updatedAt=${updatedAt}&id=${id}&limit=${batchSize}`,
-    //         `${REPLICATION_URL}/pull`,
-    //         {
-    //           headers: {
-    //             Authorization: `${jwt}`,
-    //           },
-    //         }
-    //       );
-    //       const data = await response.json();
-    //       console.log("--pull response: ", data);
-    //       return {
-    //         documents: data.documents,
-    //         checkpoint: data.checkpoint,
-    //       };
-    //     },
-    //   },
-    // });
-
-    const replicationState: RxGraphQLReplicationState<TypeTodo, CheckPoint> =
-      replicateGraphQL({
-        collection: db!.todos,
-        replicationIdentifier: "my-http-replication",
-        url: {
-          http: "https://juih7widbnehdgesqg3phhbffq.appsync-api.eu-central-1.amazonaws.com/graphql",
-          ws: "wss://juih7widbnehdgesqg3phhbffq.appsync-realtime-api.eu-central-1.amazonaws.com/graphql",
-        },
-        headers: {
-          collection: "todo",
-          // "x-api-key": "da2-a2nwvpbs6za2xmnzdqvrfmqwfq",
-          host: "juih7widbnehdgesqg3phhbffq.appsync-api.eu-central-1.amazonaws.com",
-          Authorization: Bearer,
-          "Sec-WebSocket-Protocol": ["graphql-ws"],
-        } as any,
-        push: {
-          batchSize: 100,
-          queryBuilder: (rows) => {
-            const rowsArray = Array.isArray(rows) ? rows : [rows];
-
-            const query = `mutation PushTodo($writeRows: [TodoInputPushRow!]!) {
-      pushTodo(rows: $writeRows) {
-        conflictMessages
-        checkpoint {
-          id
-          updatedAt
-        }
-        conflicts {
-          deleted
-          done
-          id
-          name
-          timestamp
-        }
-        documents {
-          deleted
-          id
-          done
-          name
-          timestamp
-        }
-      } 
-    }`;
-
-            const variables = {
-              writeRows: rowsArray, // Use the wrapped array
-            };
-
-            return {
-              query,
-              operationName: "PushTodo",
-              variables,
-            };
-          },
-          responseModifier: (plainResponse) => {
-            console.log("Push responseModifier", plainResponse);
-            return plainResponse.conflicts as MaybePromise<
-              ReplicationPushHandlerResult<TypeTodo>
-            >;
-          },
-        },
-        pull: {
-          batchSize: 100,
-          queryBuilder: (checkpoint?: CheckPoint, limit: number = 10) => {
-            if (!checkpoint)
-              checkpoint = {
-                id: "",
-                updatedAt: 0,
-              };
-
-            const query = `query PullTodos($checkpoint: Checkpoint, $limit: Int!) {
-      pullTodo(checkpoint: $checkpoint, limit: $limit){
-          checkpoint {
-            updatedAt
-            id
-          }
-          documents {
-            deleted
-            done
-            id
-            name
-            timestamp
-          }
-        }
-      }`;
-            return {
-              query,
-              operationName: "PullTodos",
-              variables: {
-                checkpoint,
-                limit,
-              },
-            };
-          },
-          streamQueryBuilder: (headers) => {
-            const query = `subscription StreamTodo {
-      streamTodo {
-        checkpoint {
-          id
-          updatedAt
-        }
-        documents {
-          deleted
-          done
-          id
-          name
-          timestamp
-        }
-      }    
-    }`;
-            return {
-              query,
-              operationName: "StreamTodo",
-              variables: null,
-            };
-          },
-          includeWsHeaders: true, // Includes headers as connection parameter to Websocket.
-          responseModifier: (plainResponse, origin, requestCheckpoint) => {
-            console.log("Pull responseModifier", origin, plainResponse);
-            if (origin === "handler") {
-              return plainResponse;
-            } else if (origin == "stream") {
+  const normalPullTodo = async () => {
+    const data = await client.graphql({
+      query: `
+        query GetTodo {
+          pullTodo(limit: 10) {
+            documents {
+              id
+              name
+              done
+              timestamp
+              deleted
             }
-            return plainResponse;
+            checkpoint {
+              id
+              updatedAt
+            }
+          }
+        }
+   
+      `,
+      variables: {},
+    });
+    return data;
+  };
+
+  const normalPushTodo = async (params: any) => {
+    const data = await client.graphql({
+      query: `
+        mutation PushTodo($row: [TodoInputPushRow!]!) {
+            pushTodo(rows: $row) {
+              documents {
+                id
+                name
+                done
+                timestamp
+                deleted
+              }
+              checkpoint {
+                id
+                updatedAt
+              }
+              conflicts {
+                  id
+                  name
+                  done
+                  timestamp
+                  deleted
+              }
+            }
+        }
+      `,
+      variables: {
+        row: [
+          {
+            assumedMasterState: params,
+            newDocumentState: {
+              ...params,
+              name: `test-${Math.floor(Math.random() * 1000)}`,
+            },
           },
+        ],
+      },
+      // authMode: "lambda",
+      // authToken: authToken
+    });
+    // console.log(JSON.stringify(data, null, 4), " >>>>>>>>>> after pushTodo");
+    console.log(data, " >>>>>>>>>> after pushTodo");
+    return data;
+  };
+
+  const subscribeToTodos = () => {
+    console.log("Initializing subscription...");
+
+    const subscription = client
+      .graphql({
+        query: `
+        subscription StreamTodo {
+            streamTodo {
+                documents {
+                    id
+                    name
+                    done
+                    timestamp
+                    deleted
+                }
+                checkpoint {
+                    id
+                    updatedAt
+                }
+            }
+        }
+      `,
+        // authMode: "lambda",
+        // authToken: authToken
+      })
+      .subscribe({
+        next: (data) => {
+          console.log(
+            "Subscription data received:",
+            JSON.stringify(data, null, 2)
+          );
+          const eventData = JSON.stringify(data, null, 2);
+          console.log(eventData);
+          myPullStream$.next({
+            documents: eventData.streamTodo.documents,
+            checkpoint: eventData.streamTodo.checkpoint,
+          });
         },
-        deletedField: "deleted",
+        error: (error) => {
+          console.error("Subscription error:", error);
+        },
+        complete: () => {
+          console.log("Subscription completed");
+        },
       });
 
-    replicationState.active$.subscribe((v) => {
-      console.log("replication", "active", v);
-    });
-    replicationState.canceled$.subscribe((v) => {
-      console.log("replication", "canceled", v);
-    });
-    replicationState.error$.subscribe(async (error) => {
-      console.log("error", "replication", error);
+    // Add connection state logging
+    if (subscription.closed) {
+      console.log("Subscription is closed");
+    } else {
+      console.log("Subscription is open");
+    }
+
+    return subscription;
+  };
+
+  useEffect(() => {
+    subscribeToTodos();
+  }, [data]);
+
+  async function replicationHandler(): Promise<void> {
+    if (!db) return;
+
+    const replicateState = replicateRxCollection({
+      collection: db.todos,
+      replicationIdentifier: "myTodos",
+      push: {
+        async handler(changeRows) {
+          const rawResponse = await normalPushTodo(changeRows);
+          const conflictsArray = rawResponse;
+          return conflictsArray;
+        },
+      },
+      pull: {
+        async handler(checkpointOrNull, batchSize) {
+          const data = await normalPullTodo();
+          // console.log(
+          //   data.data.pullTodo.documents,
+          //   " >>>>>>>>>> after GetTodo"
+          // );
+
+          return {
+            documents: data.data.pullTodo.documents,
+            checkpoint: data.data.pullTodo.checkpoint,
+          };
+        },
+        stream$: myPullStream$.asObservable(),
+      },
     });
   }
 
@@ -383,6 +365,7 @@ export default function HomeScreen() {
         if (db && jwt) {
           await readDB();
           await replicationHandler();
+          await subscribeTodo();
         }
       } catch (err) {
         console.error("Subscription or read error:", err);
