@@ -276,16 +276,12 @@ export default function HomeScreen() {
         // authToken: authToken
       })
       .subscribe({
-        next: (data) => {
-          console.log(
-            "Subscription data received:",
-            JSON.stringify(data, null, 2)
-          );
-          const eventData = JSON.stringify(data, null, 2);
-          console.log(eventData);
+        next: (data: any) => {
+          const eventData: any = JSON.stringify(data, null, 2);
+          console.log("Subscription data received:", eventData);
           myPullStream$.next({
-            documents: eventData.streamTodo.documents,
-            checkpoint: eventData.streamTodo.checkpoint,
+            documents: eventData.data?.streamTodo.documents,
+            checkpoint: eventData.data?.streamTodo.checkpoint,
           });
         },
         error: (error) => {
