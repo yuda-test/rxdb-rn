@@ -7,7 +7,6 @@ import {
   Text,
 } from "react-native";
 import React, { useEffect, useState } from "react";
-import EventSource from "react-native-sse";
 
 import {
   MaybePromise,
@@ -29,7 +28,7 @@ import {
 
 import { Amplify } from "aws-amplify";
 import { generateClient } from "aws-amplify/data";
-
+import { map, timestamp } from "rxjs/operators";
 const authToken =
   "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJkYXRhIjp7Il9pZCI6IjY1ZDZiYTg4ZGMzM2MyOTFmNWY5YzU3YiIsImxpY2Vuc2UiOiI2NWQ2YmE4YWRjMzNjMjkxZjVmOWM3MGUiLCJuYW1lIjoiZmFuZGkifSwiaWF0IjoxNzMzNzU3NjA3LCJleHAiOjE3NjQ4NjE2MDd9.RQ0DjwNsgtpIRBQCav9LxFe7UPNJNAltL4J_CFBJ7fQ";
 
@@ -55,7 +54,7 @@ const client = generateClient({
 
 addRxPlugin(RxDBDevModePlugin);
 
-import { Subject } from "rxjs";
+import { Observable, Subject } from "rxjs";
 import { replicateRxCollection } from "rxdb/plugins/replication";
 
 const myPullStream$ = new Subject<
@@ -148,7 +147,7 @@ export default function HomeScreen() {
         console.log("Inserted ID => ", data.id);
         await db?.todos.insert({
           ...data,
-          timestamp: new Date().toISOString(),
+          timestamp: Date.now(),
           done: false,
         });
       }
@@ -234,11 +233,8 @@ export default function HomeScreen() {
       variables: {
         row: [
           {
-            assumedMasterState: params,
-            newDocumentState: {
-              ...params,
-              name: `test-${Math.floor(Math.random() * 1000)}`,
-            },
+            newDocumentState: params.newDocumentState,
+            assumedMasterState: params.assumedMasterState,
           },
         ],
       },
@@ -277,12 +273,15 @@ export default function HomeScreen() {
       })
       .subscribe({
         next: (data: any) => {
-          const eventData: any = JSON.stringify(data, null, 2);
-          console.log("Subscription data received:", eventData);
-          myPullStream$.next({
-            documents: eventData.data?.streamTodo.documents,
-            checkpoint: eventData.data?.streamTodo.checkpoint,
-          });
+          console.log("Subscription data received:", data);
+          if (data?.streamTodo?.documents && data?.streamTodo?.checkpoint) {
+            myPullStream$.next({
+              documents: data.streamTodo.documents,
+              checkpoint: data.streamTodo.checkpoint,
+            });
+          } else {
+            console.warn("Unexpected subscription data format:", data);
+          }
         },
         error: (error) => {
           console.error("Subscription error:", error);
@@ -302,51 +301,99 @@ export default function HomeScreen() {
     return subscription;
   };
 
-  useEffect(() => {
-    subscribeToTodos();
-  }, [data]);
+  // useEffect(() => {
+  //   subscribeToTodos();
+  // }, [data]);
 
   async function replicationHandler(): Promise<void> {
     if (!db) return;
 
+    const subscription = client.graphql({
+      query: `
+        subscription StreamTodo {
+            streamTodo {
+                documents {
+                    id
+                    name
+                    done
+                    timestamp
+                    deleted
+                }
+                checkpoint {
+                    id
+                    updatedAt
+                }
+            }
+        }
+      `,
+    });
+
     const replicateState = replicateRxCollection({
       collection: db.todos,
       replicationIdentifier: "myTodos",
+      // deletedField: "deleted",
       push: {
         async handler(changeRows) {
-          const rawResponse = await normalPushTodo(changeRows);
-          const conflictsArray = rawResponse;
-          return conflictsArray;
+          const [data] = changeRows;
+          let assumedMasterState = data.assumedMasterState;
+          if (data.assumedMasterState) {
+            assumedMasterState = {
+              id: data.assumedMasterState.id,
+              name: data.assumedMasterState.name,
+              done: data.assumedMasterState.done,
+              timestamp: data.assumedMasterState.timestamp,
+              deleted: data.assumedMasterState._deleted,
+            };
+          }
+          const newDocumentState = {
+            id: data.newDocumentState.id,
+            name: data.newDocumentState.name,
+            done: data.newDocumentState.done,
+            timestamp: data.newDocumentState.timestamp,
+            deleted: data.newDocumentState._deleted,
+          };
+
+          const add = await normalPushTodo({
+            newDocumentState,
+            assumedMasterState,
+          });
+
+          console.log(add);
+          return add.data.pushTodo.conflicts;
         },
       },
       pull: {
         async handler(checkpointOrNull, batchSize) {
           const data = await normalPullTodo();
-          // console.log(
-          //   data.data.pullTodo.documents,
-          //   " >>>>>>>>>> after GetTodo"
-          // );
-
-          return {
-            documents: data.data.pullTodo.documents,
-            checkpoint: data.data.pullTodo.checkpoint,
-          };
+          console.log(
+            data.data.pullTodo.documents,
+            " >>>>>>>>>> after GetTodo"
+          );
+          return data.data.pullTodo;
         },
-        stream$: myPullStream$.asObservable(),
+        stream$: subscription.pipe(
+          map((wrapper: any) => {
+            console.log(
+              JSON.stringify(wrapper, null, 2),
+              "stream >>>>>>>>>>>>"
+            );
+            return wrapper.data.streamTodo;
+          })
+        ),
       },
     });
   }
 
   async function readDB(): Promise<void> {
     const todoData = await db!.todos.find({}).exec();
-    console.log("initiate read => ", todoData.length, todoData);
+    // console.log("initiate read => ", todoData.length, todoData);
     setTodo(todoData);
   }
 
   async function subscribeTodo(): Promise<void> {
     const todoData = db!.todos.find({}).$;
     todoData.subscribe((todoData: TypeTodo[]) => {
-      console.log("subscribe todoData", todoData.length, todoData);
+      // console.log("subscribe todoData", todoData.length, todoData);
       setTodo(todoData);
     });
   }
