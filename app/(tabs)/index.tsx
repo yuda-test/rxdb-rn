@@ -17,6 +17,7 @@ import { generateClient } from "aws-amplify/data";
 import dbInitiation from "../function/dbInit";
 import replicationHandler from "../function/replicateHandler";
 import useAuth from "../hook/useAuth";
+import useTodoHandlers from "../hook/useTodoHandler";
 
 Amplify.configure({
   API: {
@@ -45,78 +46,26 @@ type CheckPoint = {
 
 export default function HomeScreen() {
   const [db, setDB] = useState<RxDatabase>();
-  const [data, setData] = useState({
-    id: `RN ` + Math.random().toString(36).substr(2, 9),
-    name: "",
-  });
-  const [todo, setTodo] = useState<TypeTodo[]>([]);
+  // const [data, setData] = useState({
+  //   id: `RN ` + Math.random().toString(36).substr(2, 9),
+  //   name: "",
+  // });
+  // const [todo, setTodo] = useState<TypeTodo[]>([]);
   const { login, jwt, user, loading } = useAuth();
+  const {
+    data,
+    todo,
+    readDB,
+    setData,
+    subscribeTodo,
+    changeHandler,
+    deleteHandler,
+    submitHandler,
+  } = useTodoHandlers(db);
 
   const client = generateClient({
     authToken: jwt,
   });
-
-  function changeHandler(key: string, value: string): void {
-    const dataToChange = { ...data, [key]: value };
-    setData(dataToChange);
-  }
-
-  async function deleteHandler(id: string): Promise<void> {
-    const selectedId = db!.todos.find({
-      selector: {
-        id,
-      },
-    });
-    await selectedId.remove();
-    console.log("Deleted ID => ", id);
-  }
-
-  async function submitHandler(): Promise<void> {
-    try {
-      const selectedId = await db!.todos
-        .findOne({
-          selector: {
-            id: data.id,
-          },
-        })
-        .exec();
-      console.log(data);
-      console.log(selectedId);
-
-      if (selectedId) {
-        await selectedId.patch({ name: data.name });
-        console.log("Updated ID => ", data.id);
-      } else {
-        console.log("Inserted ID => ", data.id);
-        await db?.todos.insert({
-          ...data,
-          timestamp: Date.now(),
-          done: false,
-        });
-      }
-
-      setTimeout(() => {
-        setData({
-          id: "yuda - " + Math.random().toString(36).substr(2, 9),
-          name: "",
-        });
-      }, 1000);
-    } catch (err) {
-      console.log("Error inserting data", err);
-    }
-  }
-
-  async function readDB(): Promise<void> {
-    const todoData = await db!.todos.find({}).exec();
-    setTodo(todoData);
-  }
-
-  async function subscribeTodo(): Promise<void> {
-    const todoData = db!.todos.find({}).$;
-    todoData.subscribe((todoData: TypeTodo[]) => {
-      setTodo(todoData);
-    });
-  }
 
   useEffect(() => {
     dbInitiation(db!)
