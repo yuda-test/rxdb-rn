@@ -97,31 +97,33 @@ async function replicationHandler(db: RxDatabase, client: any): Promise<void> {
     push: {
       async handler(changeRows) {
         const [data] = changeRows;
-        let assumedMasterState = data.assumedMasterState;
-        if (data.assumedMasterState) {
-          assumedMasterState = {
-            id: data.assumedMasterState.id,
-            name: data.assumedMasterState.name,
-            done: data.assumedMasterState.done,
-            timestamp: data.assumedMasterState.timestamp,
-            deleted: data.assumedMasterState.deleted,
-          };
-        }
-        const newDocumentState = {
-          id: data.newDocumentState.id,
-          name: data.newDocumentState.name,
-          done: data.newDocumentState.done,
-          timestamp: data.newDocumentState.timestamp,
-          deleted: data.newDocumentState.deleted,
-        };
-
-        const add = await normalPushTodo(client, {
-          newDocumentState,
-          assumedMasterState,
+        // Helper function to extract the relevant fields from a state object
+        const extractState = (state: any) => ({
+          id: state?.id,
+          name: state?.name,
+          done: state?.done,
+          timestamp: state?.timestamp,
+          deleted: state?.deleted,
         });
 
-        console.log(add);
-        return add.data.pushTodo.conflicts;
+        const assumedMasterState = data.assumedMasterState
+          ? extractState(data.assumedMasterState)
+          : null;
+
+        const newDocumentState = extractState(data.newDocumentState);
+
+        try {
+          const add = await normalPushTodo(client, {
+            newDocumentState,
+            assumedMasterState,
+          });
+
+          console.log(add);
+          return add.data.pushTodo.conflicts;
+        } catch (error) {
+          console.error("Error pushing todo:", error);
+          throw error;
+        }
       },
     },
     pull: {

@@ -1,7 +1,7 @@
 import { useState } from "react";
 
-const authURL: string = process.env.EXPO_PUBLIC_AUTHURL;
-const authApiKey: string = process.env.EXPO_PUBLIC_API_KEY;
+const authURL: string = process.env.EXPO_PUBLIC_AUTHURL || "";
+const authApiKey: string = process.env.EXPO_PUBLIC_API_KEY || "";
 
 const useAuth = () => {
   const [loading, setLoading] = useState(false);

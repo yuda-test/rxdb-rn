@@ -23,8 +23,7 @@ Amplify.configure({
   API: {
     GraphQL: {
       region: "eu-central-1",
-      endpoint:
-        "https://pmskukfinrbwbd36o2vf4hsnw4.appsync-api.eu-central-1.amazonaws.com/graphql",
+      endpoint: process.env.EXPO_PUBLIC_QUERY_API || "",
       defaultAuthMode: "lambda",
     },
   },
